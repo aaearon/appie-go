@@ -55,6 +55,19 @@ func (cmd *productCommand) Execute(args []string) error {
 	return nil
 }
 
+// formatBonus renders a bonus mechanism, appending the validity date range
+// when both dates are available. Returns "" for an empty mechanism so callers
+// can skip the line entirely.
+func formatBonus(mechanism, startDate, endDate string) string {
+	if mechanism == "" {
+		return ""
+	}
+	if startDate != "" && endDate != "" {
+		return fmt.Sprintf("%s (%s → %s)", mechanism, startDate, endDate)
+	}
+	return mechanism
+}
+
 // missingIDs returns the input IDs that are not present in products.
 // Order matches the input order; duplicates in input are reported once each.
 func missingIDs(ids []int, products []appie.Product) []int {
@@ -88,8 +101,8 @@ func printProductDetail(p *appie.Product) {
 	if p.UnitPriceDescription != "" {
 		fmt.Printf("  Unit price:  %s\n", p.UnitPriceDescription)
 	}
-	if p.BonusMechanism != "" {
-		fmt.Printf("  Bonus:       %s\n", p.BonusMechanism)
+	if bonus := formatBonus(p.BonusMechanism, p.BonusStartDate, p.BonusEndDate); bonus != "" {
+		fmt.Printf("  Bonus:       %s\n", bonus)
 	}
 	if p.Category != "" {
 		cat := p.Category

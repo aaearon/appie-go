@@ -59,6 +59,12 @@ type Product struct {
 	IsBonus bool `json:"isBonus"`
 	// BonusMechanism describes the type of bonus (e.g., "25% korting").
 	BonusMechanism string `json:"bonusMechanism,omitempty"`
+	// BonusStartDate is the inclusive first date the bonus applies (YYYY-MM-DD).
+	// Set only when the API supplies validity dates (notably from the products
+	// batch endpoint, which surfaces upcoming flyer promos on Fri–Sun).
+	BonusStartDate string `json:"bonusStartDate,omitempty"`
+	// BonusEndDate is the inclusive last date the bonus applies (YYYY-MM-DD).
+	BonusEndDate string `json:"bonusEndDate,omitempty"`
 	// IsAvailable indicates if the product can be ordered online.
 	IsAvailable bool `json:"isAvailable"`
 	// IsOrderable indicates if the product can currently be ordered.

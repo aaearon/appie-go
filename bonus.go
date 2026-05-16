@@ -46,6 +46,10 @@ type bonusGroupResponse struct {
 	Products            []productResponse `json:"products"`
 	ExampleFromPrice    float64           `json:"exampleFromPrice"`
 	ExampleForPrice     float64           `json:"exampleForPrice"`
+	ValidityPeriod      struct {
+		StartDate string `json:"startDate"`
+		EndDate   string `json:"endDate"`
+	} `json:"validityPeriod"`
 }
 
 func (bg *bonusGroupResponse) toProduct() Product {
@@ -55,6 +59,8 @@ func (bg *bonusGroupResponse) toProduct() Product {
 		BonusMechanism: bg.DiscountDescription,
 		IsBonus:        true,
 		BonusSegmentID: bg.ID,
+		BonusStartDate: bg.ValidityPeriod.StartDate,
+		BonusEndDate:   bg.ValidityPeriod.EndDate,
 		Price: Price{
 			Now: bg.ExampleForPrice,
 			Was: bg.ExampleFromPrice,

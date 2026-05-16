@@ -46,10 +46,7 @@ func printProducts(products []appie.Product) {
 	})
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	for _, p := range products {
-		bonus := ""
-		if p.BonusMechanism != "" {
-			bonus = p.BonusMechanism
-		}
+		bonus := formatBonus(p.BonusMechanism, p.BonusStartDate, p.BonusEndDate)
 		fmt.Fprintf(w, "  %d\t%s\t%s\t€%.2f\t%s\n", p.ID, p.Title, p.UnitSize, p.Price.Now, bonus)
 	}
 	w.Flush()
