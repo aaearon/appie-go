@@ -87,6 +87,51 @@ func TestSearchProductsFilteredNoBonus(t *testing.T) {
 	}
 }
 
+func TestGetProductsByIDsCarriesBonusDates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mobile-services/product/search/v2/products" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("sortOn") != "INPUT_PRODUCT_IDS" {
+			t.Errorf("expected sortOn=INPUT_PRODUCT_IDS, got %q", r.URL.Query().Get("sortOn"))
+		}
+		json.NewEncoder(w).Encode([]productResponse{
+			{
+				WebshopID: 171607, Title: "Coca-Cola Zero", SalesUnitSize: "1,5 l",
+				CurrentPrice: 2.49, PriceBeforeBonus: 2.49,
+				IsBonus: true, BonusMechanism: "3 VOOR 6.99",
+				BonusStartDate: "2026-05-18", BonusEndDate: "2026-05-25",
+			},
+			{
+				WebshopID: 458995, Title: "Geen Bonus", SalesUnitSize: "500 g",
+				CurrentPrice: 1.99, PriceBeforeBonus: 1.99,
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := New(WithBaseURL(server.URL))
+	ctx := context.Background()
+
+	products, err := client.GetProductsByIDs(ctx, []int{171607, 458995})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(products) != 2 {
+		t.Fatalf("expected 2 products, got %d", len(products))
+	}
+	if products[0].BonusStartDate != "2026-05-18" {
+		t.Errorf("expected BonusStartDate 2026-05-18, got %q", products[0].BonusStartDate)
+	}
+	if products[0].BonusEndDate != "2026-05-25" {
+		t.Errorf("expected BonusEndDate 2026-05-25, got %q", products[0].BonusEndDate)
+	}
+	if products[1].BonusStartDate != "" || products[1].BonusEndDate != "" {
+		t.Errorf("expected no bonus dates on non-bonus product, got %q / %q",
+			products[1].BonusStartDate, products[1].BonusEndDate)
+	}
+}
+
 func TestSearchProductsBonusPagination(t *testing.T) {
 	// limit=3, so pageSize=3*5=15. We need totalElements > 15 to trigger pagination.
 	var requestCount int

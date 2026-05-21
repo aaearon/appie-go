@@ -31,6 +31,8 @@ type productResponse struct {
 	PriceBeforeBonus     float64  `json:"priceBeforeBonus"`
 	IsBonus              bool     `json:"isBonus"`
 	BonusMechanism       string   `json:"bonusMechanism"`
+	BonusStartDate       string   `json:"bonusStartDate"`
+	BonusEndDate         string   `json:"bonusEndDate"`
 	MainCategory         string   `json:"mainCategory"`
 	SubCategory          string   `json:"subCategory"`
 	NutriScore           string   `json:"nutriscore"`
@@ -91,6 +93,8 @@ func (p *productResponse) toProduct() Product {
 		NutriScore:           p.NutriScore,
 		IsBonus:              p.IsBonus,
 		BonusMechanism:       p.BonusMechanism,
+		BonusStartDate:       p.BonusStartDate,
+		BonusEndDate:         p.BonusEndDate,
 		IsAvailable:          p.AvailableOnline,
 		IsOrderable:          p.IsOrderable,
 		IsPreviouslyBought:   p.IsPreviouslyBought,
