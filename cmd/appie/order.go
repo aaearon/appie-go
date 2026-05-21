@@ -19,7 +19,7 @@ type orderCommand struct {
 
 func (cmd *orderCommand) Execute(args []string) error {
 	if len(args) > 0 {
-		return fmt.Errorf("unknown argument %q, did you mean: appie order show %s", args[0], args[0])
+		return fmt.Errorf("unknown argument %q, did you mean: appie order show %s: %w", args[0], args[0], errBadArgs)
 	}
 	ctx, client, err := orderSetup()
 	if err != nil {
@@ -28,7 +28,11 @@ func (cmd *orderCommand) Execute(args []string) error {
 
 	fulfillments, err := client.GetFulfillments(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get orders: %w", err)
+		return fmt.Errorf("failed to get orders: %w: %w", err, errUpstream)
+	}
+
+	if globalOpts.JSON {
+		return emitJSON(fulfillments, nil)
 	}
 
 	if len(fulfillments) == 0 {
@@ -59,7 +63,7 @@ func findFulfillment(fulfillments []appie.Fulfillment, orderID string) *appie.Fu
 
 // ensureOrderOpen finds the fulfillment for orderID, validates it exists,
 // reopens the order if SUBMITTED/CONFIRMED, and sets the client's active order ID.
-func ensureOrderOpen(ctx context.Context, client *appie.Client, fulfillments []appie.Fulfillment, orderID int) error {
+func ensureOrderOpen(ctx context.Context, client *appie.Client, fulfillments []appie.Fulfillment, orderID int, warns *Warnings) error {
 	var found *appie.Fulfillment
 	for i, f := range fulfillments {
 		if f.OrderID == orderID {
@@ -69,14 +73,14 @@ func ensureOrderOpen(ctx context.Context, client *appie.Client, fulfillments []a
 	}
 
 	if found == nil {
-		return fmt.Errorf("order %d not found in open orders", orderID)
+		return fmt.Errorf("order %d not found in open orders: %w", orderID, errNotFound)
 	}
 
 	if found.Status == "SUBMITTED" || found.Status == "CONFIRMED" {
 		if err := client.ReopenOrder(ctx, orderID); err != nil {
-			return fmt.Errorf("failed to reopen order: %w", err)
+			return fmt.Errorf("failed to reopen order: %w: %w", err, errUpstream)
 		}
-		fmt.Printf("Reopened order %d (was %s)\n", orderID, found.Status)
+		progress(warns, "Reopened order %d (was %s)", orderID, found.Status)
 	}
 
 	client.SetOrderID(orderID)
@@ -151,14 +155,14 @@ func (cmd *orderShowCommand) Execute(args []string) error {
 
 	fulfillments, err := client.GetFulfillments(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get orders: %w", err)
+		return fmt.Errorf("failed to get orders: %w: %w", err, errUpstream)
 	}
 
 	orderID := cmd.Args.OrderID
 
 	order, err := client.GetOrderDetails(ctx, orderID)
 	if err != nil {
-		return fmt.Errorf("failed to get order details: %w", err)
+		return fmt.Errorf("failed to get order details: %w: %w", err, errUpstream)
 	}
 
 	// Try to get summary for totals
@@ -169,6 +173,13 @@ func (cmd *orderShowCommand) Execute(args []string) error {
 	}
 
 	f := findFulfillment(fulfillments, order.ID)
+
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"order":       order,
+			"fulfillment": f,
+		}, nil)
+	}
 	return printOrder(order, f)
 }
 
@@ -190,11 +201,12 @@ func (cmd *orderAddCommand) Execute(args []string) error {
 
 	fulfillments, err := client.GetFulfillments(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get orders: %w", err)
+		return fmt.Errorf("failed to get orders: %w: %w", err, errUpstream)
 	}
 
 	orderID := cmd.Args.OrderID
-	if err := ensureOrderOpen(ctx, client, fulfillments, orderID); err != nil {
+	warns := &Warnings{}
+	if err := ensureOrderOpen(ctx, client, fulfillments, orderID, warns); err != nil {
 		return err
 	}
 
@@ -207,23 +219,41 @@ func (cmd *orderAddCommand) Execute(args []string) error {
 		// Search for the product
 		products, err := client.SearchProducts(ctx, product, 15)
 		if err != nil {
-			return fmt.Errorf("search failed: %w", err)
+			return fmt.Errorf("search failed: %w: %w", err, errUpstream)
 		}
 		if len(products) == 0 {
-			return fmt.Errorf("no products found for %q", product)
+			return fmt.Errorf("no products found for %q: %w", product, errNotFound)
 		}
 		if len(products) > 1 {
+			if globalOpts.JSON {
+				cands := make([]map[string]any, len(products))
+				for i, p := range products {
+					cands[i] = map[string]any{"id": p.ID, "title": p.Title}
+				}
+				return newAmbiguous(
+					fmt.Sprintf("multiple matches for %q, specify product ID", product),
+					cands,
+				)
+			}
 			printProducts(products)
-			return fmt.Errorf("multiple matches for %q, specify product ID", product)
+			return fmt.Errorf("multiple matches for %q, specify product ID: %w", product, errAmbiguous)
 		}
 		productID = products[0].ID
-		fmt.Printf("Found: %s\n", products[0].Title)
+		progress(warns, "Found: %s", products[0].Title)
 	}
 
 	if err := client.AddToOrder(ctx, []appie.OrderItem{{ProductID: productID, Quantity: qty}}); err != nil {
-		return err
+		return fmt.Errorf("add to order failed: %w: %w", err, errUpstream)
 	}
 
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"action":    "order_add",
+			"orderId":   orderID,
+			"productId": productID,
+			"quantity":  qty,
+		}, warns.Slice())
+	}
 	fmt.Printf("Added %dx %d to order %d\n", qty, productID, orderID)
 	return nil
 }
@@ -245,34 +275,52 @@ func (cmd *orderRmCommand) Execute(args []string) error {
 
 	fulfillments, err := client.GetFulfillments(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get orders: %w", err)
+		return fmt.Errorf("failed to get orders: %w: %w", err, errUpstream)
 	}
 
 	orderID := cmd.Args.OrderID
-	if err := ensureOrderOpen(ctx, client, fulfillments, orderID); err != nil {
+	warns := &Warnings{}
+	if err := ensureOrderOpen(ctx, client, fulfillments, orderID, warns); err != nil {
 		return err
 	}
 
 	productID := cmd.Args.ProductID
 	if err := client.RemoveFromOrder(ctx, productID); err != nil {
-		return err
+		return fmt.Errorf("remove from order failed: %w: %w", err, errUpstream)
 	}
 
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"action":    "order_rm",
+			"orderId":   orderID,
+			"productId": productID,
+		}, warns.Slice())
+	}
 	fmt.Printf("Removed %d from order %d\n", productID, orderID)
 	return nil
 }
 
-// orderSetup creates an authenticated client and context.
-func orderSetup() (context.Context, *appie.Client, error) {
+// clientFactory builds the authenticated client used by every command's
+// orderSetup() call. Tests can swap this to point at an httptest server.
+var clientFactory = func() (*appie.Client, error) {
 	client, err := appie.NewWithConfig(globalOpts.Config, clientOpts()...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load config: %w", err)
+		// Config-file problems are user/config errors (bad path, invalid
+		// JSON, perms), not auth failures — classify accordingly.
+		return nil, fmt.Errorf("failed to load config: %w: %w", err, errBadConfig)
 	}
-
 	if !client.IsAuthenticated() {
-		return nil, nil, fmt.Errorf("not authenticated, run 'appie login' first")
+		return nil, fmt.Errorf("not authenticated, run 'appie login' first: %w", errAuth)
 	}
+	return client, nil
+}
 
+// orderSetup creates an authenticated client and context.
+func orderSetup() (context.Context, *appie.Client, error) {
+	client, err := clientFactory()
+	if err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	_ = cancel // cleaned up when process exits
 	return ctx, client, nil

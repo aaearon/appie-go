@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	appie "github.com/gwillem/appie-go"
 )
@@ -24,33 +23,50 @@ func (cmd *productCommand) Execute(args []string) error {
 
 	products, err := client.GetProductsByIDs(ctx, ids)
 	if err != nil {
-		return fmt.Errorf("get products failed: %w", err)
+		return fmt.Errorf("get products failed: %w: %w", err, errUpstream)
 	}
 
+	warns := &Warnings{}
 	for _, id := range missingIDs(ids, products) {
-		fmt.Fprintf(os.Stderr, "warning: product %d not found\n", id)
+		warnf(warns, "product %d not found", id)
 	}
 
 	if len(products) == 0 {
-		return fmt.Errorf("no products resolved")
+		return fmt.Errorf("no products resolved: %w", errNotFound)
 	}
 
 	if !cmd.Detail {
+		if globalOpts.JSON {
+			return emitJSON(products, warns.Slice())
+		}
 		printProducts(products)
 		return nil
 	}
 
+	full := make([]*appie.Product, 0, len(products))
 	for i, p := range products {
-		if i > 0 {
-			fmt.Println()
-		}
-		full, err := client.GetProductFull(ctx, p.ID)
+		got, err := client.GetProductFull(ctx, p.ID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: nutrition fetch for %d failed: %v\n", p.ID, err)
-			printProductDetail(&p)
+			warnf(warns, "nutrition fetch for %d failed: %v", p.ID, err)
+			full = append(full, &products[i])
+			if !globalOpts.JSON {
+				if i > 0 {
+					fmt.Println()
+				}
+				printProductDetail(&p)
+			}
 			continue
 		}
-		printProductDetail(full)
+		full = append(full, got)
+		if !globalOpts.JSON {
+			if i > 0 {
+				fmt.Println()
+			}
+			printProductDetail(got)
+		}
+	}
+	if globalOpts.JSON {
+		return emitJSON(full, warns.Slice())
 	}
 	return nil
 }

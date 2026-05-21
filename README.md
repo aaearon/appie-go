@@ -136,6 +136,32 @@ appie list rm <list-id> <product-id>   # remove product
 
 Config is stored at `~/.config/appie/config.json` (or `$XDG_CONFIG_HOME/appie/config.json`). Override with `-c`.
 
+### Machine-readable JSON output (`-j` / `--json`)
+
+Add `-j` to any command to emit a single JSON envelope on stdout (status messages move to stderr). Useful for scripts and LLM-driven assistants.
+
+Success:
+
+```json
+{"ok": true, "data": <typed payload>, "warnings": [...optional...]}
+```
+
+Error:
+
+```json
+{"ok": false, "error": {"code": "string", "message": "string", "details": {...optional...}}}
+```
+
+Exit codes: `0` success, `1` user/arg error, `2` not authenticated, `3` upstream/network, `4` not found.
+
+Error codes: `not_authenticated`, `not_found`, `ambiguous` (with candidates in `error.details`), `bad_args`, `upstream_failed`.
+
+```bash
+appie -j search melk | jq '.data[].id'
+appie -j list show <uuid> | jq '.data.items'
+appie -j order show 12345 | jq '.data.order'
+```
+
 ## Notes
 
 - Rate limiting may apply. AH does not send back-off headers, so the practical rate limit is unknown.

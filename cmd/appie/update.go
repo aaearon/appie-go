@@ -15,12 +15,22 @@ func (c *updateCommand) Execute(args []string) error {
 		runtime.GOOS, runtime.GOARCH,
 	)
 
-	fmt.Printf("Current version: %s\n", version)
-	fmt.Printf("Checking for updates...\n")
+	if !globalOpts.JSON {
+		fmt.Printf("Current version: %s\n", version)
+		fmt.Printf("Checking for updates...\n")
+	}
 
 	updated, err := selfupdate.Update(url)
 	if err != nil {
-		return fmt.Errorf("update failed: %w", err)
+		return fmt.Errorf("update failed: %w: %w", err, errUpstream)
+	}
+
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"from":    version,
+			"to":      "latest",
+			"updated": updated,
+		}, nil)
 	}
 
 	if updated {
