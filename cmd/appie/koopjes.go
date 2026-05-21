@@ -22,19 +22,28 @@ func (cmd *koopjesCommand) Execute(args []string) error {
 
 	stores, err := client.SearchStores(ctx, cmd.Args.PostalCode)
 	if err != nil {
-		return fmt.Errorf("store search failed: %w", err)
+		return fmt.Errorf("store search failed: %w: %w", err, errUpstream)
 	}
 	if len(stores) == 0 {
-		return fmt.Errorf("no stores found near %q", cmd.Args.PostalCode)
+		return fmt.Errorf("no stores found near %q: %w", cmd.Args.PostalCode, errNotFound)
 	}
 
 	store := stores[0]
-	fmt.Fprintf(os.Stderr, "%s %s, %s\n\n",
-		store.Address.Street, store.Address.HouseNumber, store.Address.City)
+	if !globalOpts.JSON {
+		fmt.Fprintf(os.Stderr, "%s %s, %s\n\n",
+			store.Address.Street, store.Address.HouseNumber, store.Address.City)
+	}
 
 	bargains, err := client.GetBargains(ctx, store.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get bargains: %w", err)
+		return fmt.Errorf("failed to get bargains: %w: %w", err, errUpstream)
+	}
+
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"store":    store,
+			"bargains": bargains,
+		}, nil)
 	}
 
 	if len(bargains) == 0 {
