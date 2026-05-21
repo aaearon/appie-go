@@ -30,12 +30,15 @@ func (cmd *searchCommand) Execute(args []string) error {
 		Bonus: cmd.Bonus,
 	})
 	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
+		return fmt.Errorf("search failed: %w: %w", err, errUpstream)
 	}
 	if len(products) == 0 {
-		return fmt.Errorf("no products found for %q", cmd.Args.Query)
+		return fmt.Errorf("no products found for %q: %w", cmd.Args.Query, errNotFound)
 	}
 
+	if globalOpts.JSON {
+		return emitJSON(products, nil)
+	}
 	printProducts(products)
 	return nil
 }

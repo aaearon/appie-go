@@ -85,6 +85,16 @@ func WithConfigPath(path string) Option {
 	}
 }
 
+// WithOpenBrowser overrides the function used to open the login URL. The
+// default writes the URL to stdout and invokes the OS browser. Provide your
+// own to route the URL to stderr, log it, or suppress it entirely (useful for
+// CLIs that emit structured JSON on stdout).
+func WithOpenBrowser(fn func(string)) Option {
+	return func(c *Client) {
+		c.openBrowser = fn
+	}
+}
+
 // New creates a new AH API client.
 func New(opts ...Option) *Client {
 	c := &Client{

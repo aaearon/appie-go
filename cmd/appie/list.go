@@ -17,7 +17,7 @@ type shoppingListCommand struct {
 
 func (cmd *shoppingListCommand) Execute(args []string) error {
 	if len(args) > 0 {
-		return fmt.Errorf("unknown argument %q, did you mean: appie list show %s", args[0], args[0])
+		return fmt.Errorf("unknown argument %q, did you mean: appie list show %s: %w", args[0], args[0], errBadArgs)
 	}
 	ctx, client, err := orderSetup()
 	if err != nil {
@@ -26,7 +26,11 @@ func (cmd *shoppingListCommand) Execute(args []string) error {
 
 	lists, err := client.GetShoppingLists(ctx, 0)
 	if err != nil {
-		return fmt.Errorf("failed to get shopping lists: %w", err)
+		return fmt.Errorf("failed to get shopping lists: %w: %w", err, errUpstream)
+	}
+
+	if globalOpts.JSON {
+		return emitJSON(lists, nil)
 	}
 
 	if len(lists) == 0 {
@@ -48,7 +52,7 @@ func findList(lists []appie.ShoppingList, id string) (*appie.ShoppingList, error
 			return &lists[i], nil
 		}
 	}
-	return nil, fmt.Errorf("list %q not found", id)
+	return nil, fmt.Errorf("list %q not found: %w", id, errNotFound)
 }
 
 // show subcommand
@@ -77,14 +81,7 @@ func (cmd *shoppingListShowCommand) Execute(args []string) error {
 
 	items, err := client.GetShoppingListItems(ctx, list.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get list items: %w", err)
-	}
-
-	fmt.Printf("%s (%d items)\n\n", list.Name, len(items))
-
-	if len(items) == 0 {
-		fmt.Println("No items")
-		return nil
+		return fmt.Errorf("failed to get list items: %w: %w", err, errUpstream)
 	}
 
 	// Enrich items with product details
@@ -99,11 +96,37 @@ func (cmd *shoppingListShowCommand) Execute(args []string) error {
 	if len(productIDs) > 0 {
 		ps, err := client.GetProductsByIDs(ctx, productIDs)
 		if err != nil {
-			return fmt.Errorf("failed to fetch product details: %w", err)
+			return fmt.Errorf("failed to fetch product details: %w: %w", err, errUpstream)
 		}
 		for i := range ps {
 			products[ps[i].ID] = &ps[i]
 		}
+	}
+
+	if globalOpts.JSON {
+		enriched := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			row := map[string]any{
+				"productId": item.ProductID,
+				"quantity":  item.Quantity,
+				"name":      item.Name,
+			}
+			if p, ok := products[item.ProductID]; ok {
+				row["product"] = p
+			}
+			enriched = append(enriched, row)
+		}
+		return emitJSON(map[string]any{
+			"list":  list,
+			"items": enriched,
+		}, nil)
+	}
+
+	fmt.Printf("%s (%d items)\n\n", list.Name, len(items))
+
+	if len(items) == 0 {
+		fmt.Println("No items")
+		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -154,6 +177,7 @@ func (cmd *shoppingListAddCommand) Execute(args []string) error {
 	}
 
 	product := cmd.Args.Product
+	warns := &Warnings{}
 
 	// If numeric, use as product ID directly
 	productID, err := strconv.Atoi(product)
@@ -161,23 +185,41 @@ func (cmd *shoppingListAddCommand) Execute(args []string) error {
 		// Search for the product
 		products, err := client.SearchProducts(ctx, product, 15)
 		if err != nil {
-			return fmt.Errorf("search failed: %w", err)
+			return fmt.Errorf("search failed: %w: %w", err, errUpstream)
 		}
 		if len(products) == 0 {
-			return fmt.Errorf("no products found for %q", product)
+			return fmt.Errorf("no products found for %q: %w", product, errNotFound)
 		}
 		if len(products) > 1 {
+			if globalOpts.JSON {
+				cands := make([]map[string]any, len(products))
+				for i, p := range products {
+					cands[i] = map[string]any{"id": p.ID, "title": p.Title}
+				}
+				return newAmbiguous(
+					fmt.Sprintf("multiple matches for %q, specify product ID", product),
+					cands,
+				)
+			}
 			printProducts(products)
-			return fmt.Errorf("multiple matches for %q, specify product ID", product)
+			return fmt.Errorf("multiple matches for %q, specify product ID: %w", product, errAmbiguous)
 		}
 		productID = products[0].ID
-		fmt.Printf("Found: %s\n", products[0].Title)
+		progress(warns, "Found: %s", products[0].Title)
 	}
 
 	if err := client.AddToFavoriteList(ctx, list.ID, []appie.ListItem{{ProductID: productID, Quantity: cmd.Quantity}}); err != nil {
-		return err
+		return fmt.Errorf("add to list failed: %w: %w", err, errUpstream)
 	}
 
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"action":    "list_add",
+			"list":      map[string]any{"id": list.ID, "name": list.Name},
+			"productId": productID,
+			"quantity":  cmd.Quantity,
+		}, warns.Slice())
+	}
 	fmt.Printf("Added %dx %d to %s\n", cmd.Quantity, productID, list.Name)
 	return nil
 }
@@ -208,9 +250,16 @@ func (cmd *shoppingListRmCommand) Execute(args []string) error {
 	}
 
 	if err := client.RemoveFromFavoriteList(ctx, list.ID, []int{cmd.Args.ProductID}); err != nil {
-		return err
+		return fmt.Errorf("remove from list failed: %w: %w", err, errUpstream)
 	}
 
+	if globalOpts.JSON {
+		return emitJSON(map[string]any{
+			"action":    "list_rm",
+			"list":      map[string]any{"id": list.ID, "name": list.Name},
+			"productId": cmd.Args.ProductID,
+		}, nil)
+	}
 	fmt.Printf("Removed %d from %s\n", cmd.Args.ProductID, list.Name)
 	return nil
 }
