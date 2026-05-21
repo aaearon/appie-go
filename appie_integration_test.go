@@ -12,14 +12,14 @@ import (
 func testClient(t *testing.T) *Client {
 	t.Helper()
 
-	// Try to load from .appie.json
-	client, err := NewWithConfig(".appie.json")
+	configPath := DefaultConfigPath()
+	client, err := NewWithConfig(configPath)
 	if err != nil {
-		t.Skipf("failed to load config: %v", err)
+		t.Skipf("failed to load config from %s: %v", configPath, err)
 	}
 
 	if !client.IsAuthenticated() {
-		t.Skip("no authentication tokens available")
+		t.Skipf("no authentication tokens at %s; run `appie login`", configPath)
 	}
 
 	return client
@@ -145,7 +145,7 @@ func TestGetShoppingList(t *testing.T) {
 	}
 }
 
-func TestGetShoppingListItems(t *testing.T) {
+func TestGetShoppingListItemsIntegration(t *testing.T) {
 	client := testClient(t)
 	ctx := context.Background()
 

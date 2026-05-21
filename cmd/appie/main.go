@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	appie "github.com/gwillem/appie-go"
 	"github.com/jessevdk/go-flags"
@@ -35,18 +34,6 @@ func clientOpts() []appie.Option {
 		opts = append(opts, appie.WithLogger(log.New(os.Stderr, "", log.Ltime)))
 	}
 	return opts
-}
-
-func defaultConfigPath() string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ".appie.json"
-		}
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "appie", "config.json")
 }
 
 // handleParseError classifies and emits a command error, then exits.
@@ -92,7 +79,7 @@ func wantsJSON() bool {
 
 func main() {
 	if globalOpts.Config == "" {
-		globalOpts.Config = defaultConfigPath()
+		globalOpts.Config = appie.DefaultConfigPath()
 	}
 
 	// Set JSON mode from a raw-args scan before flags parsing, so an

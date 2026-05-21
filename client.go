@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -111,6 +112,21 @@ func New(opts ...Option) *Client {
 	}
 
 	return c
+}
+
+// DefaultConfigPath returns the standard XDG config path for the appie config
+// file ($XDG_CONFIG_HOME/appie/config.json, falling back to ~/.config/appie/config.json).
+// If the user's home directory cannot be determined it returns ".appie.json" in cwd.
+func DefaultConfigPath() string {
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ".appie.json"
+		}
+		dir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(dir, "appie", "config.json")
 }
 
 // NewWithConfig creates a new client and loads config from the given path.
