@@ -107,7 +107,7 @@ func (c *Client) getBonusSection(ctx context.Context, category, date string) ([]
 
 	var result bonusSectionResponse
 	if err := c.DoRequest(ctx, http.MethodGet, path, nil, &result); err != nil {
-		return nil, fmt.Errorf("get bonus products failed (category=%s): %w", category, err)
+		return nil, fmt.Errorf("get bonus section failed (date=%s): %w", date, err)
 	}
 
 	return collectBonusProducts(result), nil
@@ -125,6 +125,13 @@ func (c *Client) getBonusSection(ctx context.Context, category, date string) ([]
 // returned products slice is nil and failures lists each error — callers
 // decide whether to escalate.
 func (c *Client) GetBonusProducts(ctx context.Context, date string) ([]Product, []CategoryError, error) {
+	// Resolve "today" once up front so a long-running loop that crosses
+	// midnight doesn't end up fetching different categories for different
+	// dates.
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+
 	categories, err := c.getBonusMetadata(ctx)
 	if err != nil {
 		return nil, nil, err

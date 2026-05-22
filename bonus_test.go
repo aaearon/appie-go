@@ -73,9 +73,24 @@ func bonusTestServer(t *testing.T, categories []string, sections map[string]http
 	return httptest.NewServer(mux)
 }
 
+// assertDateQueryParam wraps a handler to verify that every /v2/section
+// request carries the expected date query parameter. Lets a single test
+// confirm that the date plumbing in GetBonusProducts actually reaches the
+// underlying HTTP call.
+func assertDateQueryParam(t *testing.T, want string, inner http.HandlerFunc) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("date"); got != want {
+			t.Errorf("expected date=%q on /v2/section, got %q", want, got)
+		}
+		inner(w, r)
+	}
+}
+
 func TestGetBonusProductsPartialSuccess(t *testing.T) {
+	const wantDate = "2026-05-22"
 	sections := map[string]http.HandlerFunc{
-		"zuivel": func(w http.ResponseWriter, r *http.Request) {
+		"zuivel": assertDateQueryParam(t, wantDate, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(bonusSectionResponse{
 				BonusGroupOrProducts: []struct {
 					Product    *productResponse    `json:"product,omitempty"`
@@ -85,11 +100,11 @@ func TestGetBonusProductsPartialSuccess(t *testing.T) {
 					{Product: &productResponse{WebshopID: 2, Title: "Kaas", IsBonus: true}},
 				},
 			})
-		},
-		"vlees": func(w http.ResponseWriter, r *http.Request) {
+		}),
+		"vlees": assertDateQueryParam(t, wantDate, func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "boom", http.StatusFailedDependency)
-		},
-		"brood": func(w http.ResponseWriter, r *http.Request) {
+		}),
+		"brood": assertDateQueryParam(t, wantDate, func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(bonusSectionResponse{
 				BonusGroupOrProducts: []struct {
 					Product    *productResponse    `json:"product,omitempty"`
@@ -98,13 +113,13 @@ func TestGetBonusProductsPartialSuccess(t *testing.T) {
 					{Product: &productResponse{WebshopID: 3, Title: "Brood", IsBonus: true}},
 				},
 			})
-		},
+		}),
 	}
 	server := bonusTestServer(t, []string{"zuivel", "vlees", "brood"}, sections)
 	defer server.Close()
 
 	client := New(WithBaseURL(server.URL))
-	products, failures, err := client.GetBonusProducts(context.Background(), "2026-05-22")
+	products, failures, err := client.GetBonusProducts(context.Background(), wantDate)
 	if err != nil {
 		t.Fatalf("unexpected top-level error: %v", err)
 	}
@@ -119,6 +134,11 @@ func TestGetBonusProductsPartialSuccess(t *testing.T) {
 	}
 	if !strings.Contains(failures[0].Error(), "vlees") {
 		t.Errorf("CategoryError.Error() should include the category name, got %q", failures[0].Error())
+	}
+	// CategoryError is the single source of per-category annotation; the
+	// underlying getBonusSection error must not also embed the category.
+	if strings.Count(failures[0].Error(), "vlees") > 1 {
+		t.Errorf("CategoryError.Error() duplicates the category name, got %q", failures[0].Error())
 	}
 }
 
