@@ -245,9 +245,13 @@ func TestOrderRoundTrip(t *testing.T) {
 	}
 	if len(bonus) < 3 {
 		t.Logf("Spotlight has %d products, falling back to regular bonus", len(bonus))
-		bonus, err = client.GetBonusProducts(ctx)
+		var failures []CategoryError
+		bonus, failures, err = client.GetBonusProducts(ctx, "")
 		if err != nil {
 			t.Fatalf("failed to get bonus products: %v", err)
+		}
+		for _, f := range failures {
+			t.Logf("bonus category %s failed: %v", f.Category, f.Err)
 		}
 	}
 
@@ -346,9 +350,12 @@ func TestGetBonusGroupProducts(t *testing.T) {
 	ctx := context.Background()
 
 	// First get bonus products and find a group (ID==0, BonusSegmentID!="")
-	bonus, err := client.GetBonusProducts(ctx)
+	bonus, failures, err := client.GetBonusProducts(ctx, "")
 	if err != nil {
 		t.Fatalf("failed to get bonus products: %v", err)
+	}
+	for _, f := range failures {
+		t.Logf("bonus category %s failed: %v", f.Category, f.Err)
 	}
 
 	var segmentID string
