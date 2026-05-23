@@ -92,10 +92,14 @@ func (c *Client) getBonusMetadata(ctx context.Context) ([]string, error) {
 }
 
 // getBonusSection retrieves bonus products for a single category.
-func (c *Client) getBonusSection(ctx context.Context, category string) ([]Product, error) {
+// If date is empty, today is used.
+func (c *Client) getBonusSection(ctx context.Context, category, date string) ([]Product, error) {
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
 	params := url.Values{}
 	params.Set("application", "AHWEBSHOP")
-	params.Set("date", time.Now().Format("2006-01-02"))
+	params.Set("date", date)
 	params.Set("promotionType", "NATIONAL")
 	params.Set("category", category)
 
@@ -103,28 +107,45 @@ func (c *Client) getBonusSection(ctx context.Context, category string) ([]Produc
 
 	var result bonusSectionResponse
 	if err := c.DoRequest(ctx, http.MethodGet, path, nil, &result); err != nil {
-		return nil, fmt.Errorf("get bonus products failed (category=%s): %w", category, err)
+		return nil, fmt.Errorf("get bonus section failed (date=%s): %w", date, err)
 	}
 
 	return collectBonusProducts(result), nil
 }
 
 // GetBonusProducts retrieves all products currently on bonus (promotion)
-// across all categories. Results are deduplicated by product title (since
-// group-level bonus entries have no product ID).
-func (c *Client) GetBonusProducts(ctx context.Context) ([]Product, error) {
+// across all categories for the given date (YYYY-MM-DD). If date is empty,
+// today is used. Results are deduplicated by (ID, Title) — group-level
+// bonus entries have no product ID so the title disambiguates them.
+//
+// A non-nil top-level error is only returned if the bonus metadata lookup
+// itself fails. Per-category failures are collected into []CategoryError
+// and returned alongside any products that did succeed, so one HTTP 424
+// from AH cannot nuke the whole flyer. When every category fails, the
+// returned products slice is nil and failures lists each error — callers
+// decide whether to escalate.
+func (c *Client) GetBonusProducts(ctx context.Context, date string) ([]Product, []CategoryError, error) {
+	// Resolve "today" once up front so a long-running loop that crosses
+	// midnight doesn't end up fetching different categories for different
+	// dates.
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+
 	categories, err := c.getBonusMetadata(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	seen := make(map[string]bool)
 	var products []Product
+	var failures []CategoryError
 
 	for _, category := range categories {
-		catProducts, err := c.getBonusSection(ctx, category)
+		catProducts, err := c.getBonusSection(ctx, category, date)
 		if err != nil {
-			return nil, err
+			failures = append(failures, CategoryError{Category: category, Err: err})
+			continue
 		}
 
 		for _, p := range catProducts {
@@ -136,7 +157,7 @@ func (c *Client) GetBonusProducts(ctx context.Context) ([]Product, error) {
 		}
 	}
 
-	return products, nil
+	return products, failures, nil
 }
 
 // GetSpotlightBonusProducts retrieves featured/highlighted bonus products.

@@ -1,6 +1,23 @@
 package appie
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// CategoryError reports the failure of a single bonus category lookup
+// during GetBonusProducts. Returned alongside any successful categories so
+// one bad category does not nuke the whole flyer.
+type CategoryError struct {
+	Category string
+	Err      error
+}
+
+func (e CategoryError) Error() string {
+	return fmt.Sprintf("bonus category %q: %v", e.Category, e.Err)
+}
+
+func (e CategoryError) Unwrap() error { return e.Err }
 
 // token represents the authentication tokens returned by the API.
 type token struct {
