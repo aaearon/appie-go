@@ -132,6 +132,44 @@ func TestGetProductsByIDsCarriesBonusDates(t *testing.T) {
 	}
 }
 
+func TestGetProductsByIDsCarriesOnlineOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]productResponse{
+			{
+				WebshopID: 609423, Title: "Campina Volle milde kwark 4-pack",
+				CurrentPrice: 8.24, PriceBeforeBonus: 9.16, IsBonus: true,
+				BonusMechanism: "10% volume voordeel",
+				DiscountType:   "AHOO", PromotionType: "AHONLINE",
+			},
+			{
+				WebshopID: 505322, Title: "In-store flyer deal",
+				CurrentPrice: 1.00, PriceBeforeBonus: 2.50, IsBonus: true,
+				BonusMechanism: "60% korting",
+				DiscountType:   "AH", PromotionType: "NATIONAL",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := New(WithBaseURL(server.URL))
+	products, err := client.GetProductsByIDs(context.Background(), []int{609423, 505322})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(products) != 2 {
+		t.Fatalf("expected 2 products, got %d", len(products))
+	}
+	if products[0].DiscountType != "AHOO" || products[0].PromotionType != "AHONLINE" {
+		t.Errorf("online row lost channel fields: %q / %q", products[0].DiscountType, products[0].PromotionType)
+	}
+	if !products[0].IsOnlineOnly() {
+		t.Error("AHOO/AHONLINE row should report IsOnlineOnly()=true")
+	}
+	if products[1].IsOnlineOnly() {
+		t.Error("in-store AH/NATIONAL row must NOT report IsOnlineOnly()")
+	}
+}
+
 func TestSearchProductsBonusPagination(t *testing.T) {
 	// limit=3, so pageSize=3*5=15. We need totalElements > 15 to trigger pagination.
 	var requestCount int

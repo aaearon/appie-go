@@ -98,6 +98,22 @@ type Product struct {
 	// Non-empty only for group-level bonus items (e.g., "Alle Hak*") that
 	// have ID==0. Use GetBonusGroupProducts to resolve to individual products.
 	BonusSegmentID string `json:"bonusSegmentId,omitempty"`
+	// DiscountType classifies an active promotion's channel: "AH" for a regular
+	// in-store/national bonus, "AHOO" for an AH Online-Only deal (a "voordeel"
+	// redeemable only on ah.nl, not in physical stores). Empty when not on bonus.
+	DiscountType string `json:"discountType,omitempty"`
+	// PromotionType is the promotion's scope, e.g. "NATIONAL" (in-store flyer) or
+	// "AHONLINE" (online-only). It parallels DiscountType for channel detection.
+	PromotionType string `json:"promotionType,omitempty"`
+}
+
+// IsOnlineOnly reports whether the product's active promotion is an AH
+// Online-Only deal — a "voordeel" available on ah.nl but NOT in physical stores.
+// AH marks these with discountType "AHOO" and promotionType "AHONLINE"; either
+// signal is treated as sufficient because the related segmentType/labelType
+// fields are inconsistent across the API.
+func (p Product) IsOnlineOnly() bool {
+	return p.DiscountType == "AHOO" || p.PromotionType == "AHONLINE"
 }
 
 // Price represents product pricing in EUR.

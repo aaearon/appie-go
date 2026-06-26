@@ -40,6 +40,8 @@ type productResponse struct {
 	IsPreviouslyBought   bool     `json:"isPreviouslyBought"`
 	IsOrderable          bool     `json:"isOrderable"`
 	PropertyIcons        []string `json:"propertyIcons"`
+	DiscountType         string   `json:"discountType"`
+	PromotionType        string   `json:"promotionType"`
 }
 
 // GraphQL query for fetching product nutritional info via tradeItem
@@ -101,6 +103,8 @@ func (p *productResponse) toProduct() Product {
 		UnitSize:             p.SalesUnitSize,
 		UnitPriceDescription: p.UnitPriceDescription,
 		PropertyIcons:        p.PropertyIcons,
+		DiscountType:         p.DiscountType,
+		PromotionType:        p.PromotionType,
 	}
 }
 
