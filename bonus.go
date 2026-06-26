@@ -47,8 +47,8 @@ type bonusGroupResponse struct {
 	ExampleFromPrice    float64           `json:"exampleFromPrice"`
 	ExampleForPrice     float64           `json:"exampleForPrice"`
 	ValidityPeriod      struct {
-		StartDate string `json:"startDate"`
-		EndDate   string `json:"endDate"`
+		StartDate string `json:"start"`
+		EndDate   string `json:"end"`
 	} `json:"validityPeriod"`
 }
 
@@ -334,16 +334,33 @@ func (c *Client) getBonusPeriod(ctx context.Context) (startDate, endDate string,
 //
 // The segmentID is the bonus group identifier, available as BonusSegmentID
 // on Product entries returned by GetBonusProducts.
+//
+// It resolves the CURRENT bonus period from metadata and delegates to
+// GetBonusGroupProductsForPeriod. To expand a NEXT-period group, pass the
+// next period's dates explicitly via GetBonusGroupProductsForPeriod.
 func (c *Client) GetBonusGroupProducts(ctx context.Context, segmentID string) ([]Product, error) {
 	startDate, endDate, err := c.getBonusPeriod(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return c.GetBonusGroupProductsForPeriod(ctx, segmentID, startDate, endDate)
+}
 
+// GetBonusGroupProductsForPeriod is the period-aware variant of
+// GetBonusGroupProducts: it expands a bonus promotion group into its member
+// products using the SUPPLIED bonus period (periodStart/periodEnd, YYYY-MM-DD)
+// instead of the current period resolved from metadata.
+//
+// The period flows into the FetchBonusPromotionWithProducts GraphQL variables
+// ($periodStart/$periodEnd), which feed both the bonusPromotions input and the
+// per-product priceV2 lookup — so passing the NEXT period's dates returns the
+// next period's members and prices instead of the current period's empty/stale
+// result.
+func (c *Client) GetBonusGroupProductsForPeriod(ctx context.Context, segmentID, periodStart, periodEnd string) ([]Product, error) {
 	variables := map[string]any{
 		"id":                        segmentID,
-		"periodStart":               startDate,
-		"periodEnd":                 endDate,
+		"periodStart":               periodStart,
+		"periodEnd":                 periodEnd,
 		"filterUnavailableProducts": true,
 		"forcePromotionVisibility":  true,
 		"showAllPromotionSegments":  true,
