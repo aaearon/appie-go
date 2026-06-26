@@ -205,6 +205,103 @@ func TestGetBonusProductsDedupesByIDAndTitle(t *testing.T) {
 	}
 }
 
+// graphQLDataEnvelope wraps the bonusPromotions payload in the GraphQL
+// {"data": …} envelope DoGraphQL expects.
+func encodeBonusPromotions(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	resp := graphQLResponse[json.RawMessage]{Data: json.RawMessage(`{"bonusPromotions":` + body + `}`)}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		t.Fatalf("encode graphql response: %v", err)
+	}
+}
+
+func TestGetBonusGroupProductsForPeriodUsesSuppliedPeriod(t *testing.T) {
+	const (
+		wantStart = "2026-07-01"
+		wantEnd   = "2026-07-07"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/graphql" {
+			t.Fatalf("unexpected path %q (must not hit metadata)", r.URL.Path)
+		}
+		var req graphQLRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode graphql request: %v", err)
+		}
+		if got := req.Variables["periodStart"]; got != wantStart {
+			t.Errorf("periodStart = %v, want %q", got, wantStart)
+		}
+		if got := req.Variables["periodEnd"]; got != wantEnd {
+			t.Errorf("periodEnd = %v, want %q", got, wantEnd)
+		}
+		if got := req.Variables["id"]; got != "seg-next" {
+			t.Errorf("id = %v, want %q", got, "seg-next")
+		}
+		encodeBonusPromotions(t, w, `[{"id":"seg-next","products":[{"id":99,"title":"Next member"}]}]`)
+	}))
+	defer server.Close()
+
+	client := New(WithBaseURL(server.URL))
+	products, err := client.GetBonusGroupProductsForPeriod(context.Background(), "seg-next", wantStart, wantEnd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(products) != 1 || products[0].ID != 99 {
+		t.Fatalf("expected 1 product id=99, got %+v", products)
+	}
+}
+
+func TestGetBonusGroupProductsDelegatesCurrentPeriod(t *testing.T) {
+	// GetBonusGroupProducts must resolve the current period from metadata
+	// (periods[0]) and feed it into the GraphQL variables.
+	const (
+		wantStart = "2026-05-21"
+		wantEnd   = "2026-05-27"
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mobile-services/bonuspage/v3/metadata", func(w http.ResponseWriter, r *http.Request) {
+		meta := bonusMetadataResponse{}
+		meta.Periods = append(meta.Periods, struct {
+			BonusStartDate string `json:"bonusStartDate"`
+			BonusEndDate   string `json:"bonusEndDate"`
+			Tabs           []struct {
+				Description     string `json:"description"`
+				URLMetadataList []struct {
+					URL         string `json:"url"`
+					Count       int    `json:"count"`
+					BonusType   string `json:"bonusType"`
+					Description string `json:"description"`
+				} `json:"urlMetadataList"`
+			} `json:"tabs"`
+		}{BonusStartDate: wantStart, BonusEndDate: wantEnd})
+		_ = json.NewEncoder(w).Encode(meta)
+	})
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
+		var req graphQLRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode graphql request: %v", err)
+		}
+		if got := req.Variables["periodStart"]; got != wantStart {
+			t.Errorf("periodStart = %v, want %q (current period)", got, wantStart)
+		}
+		if got := req.Variables["periodEnd"]; got != wantEnd {
+			t.Errorf("periodEnd = %v, want %q (current period)", got, wantEnd)
+		}
+		encodeBonusPromotions(t, w, `[{"id":"g1","products":[{"id":7,"title":"Current member"}]}]`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := New(WithBaseURL(srv.URL))
+	products, err := client.GetBonusGroupProducts(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(products) != 1 || products[0].ID != 7 {
+		t.Fatalf("expected 1 product id=7, got %+v", products)
+	}
+}
+
 func TestCategoryErrorUnwrap(t *testing.T) {
 	inner := errors.New("upstream 424")
 	ce := CategoryError{Category: "vlees", Err: inner}
